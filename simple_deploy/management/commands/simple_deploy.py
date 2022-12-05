@@ -140,7 +140,7 @@ class Command(BaseCommand):
         """
         if not self.platform:
             raise CommandError(d_msgs.requires_platform_flag)
-        elif self.platform in ['fly_io', 'platform_sh', 'heroku']:
+        elif self.platform in ['fly_io', 'platform_sh', 'heroku', 'cloudrun']:
             self.write_output(f"  Deployment target: {self.platform}", skip_logging=True)
         else:
             error_msg = d_msgs.invalid_platform_msg(self.platform)
