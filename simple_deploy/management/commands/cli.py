@@ -42,7 +42,7 @@ class SimpleDeployCLI:
             "--platform",
             "-p",
             type=str,
-            help="Specifies the platform where the project will be deployed. Options: fly_io | platform_sh | heroku",
+            help="Specifies the platform where the project will be deployed. Options: fly_io | platform_sh | heroku | cloudrun",
             default="",
         )
 
