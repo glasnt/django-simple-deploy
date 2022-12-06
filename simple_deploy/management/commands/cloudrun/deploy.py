@@ -6,7 +6,6 @@ from pathlib import Path
 
 from django.conf import settings
 from django.core.management.base import CommandError
-from django.core.management.utils import get_random_secret_key
 from django.utils.crypto import get_random_string
 from django.utils.safestring import mark_safe
 
@@ -37,6 +36,7 @@ class PlatformDeployer:
         self.sd.write_output("Configuring project for deployment to Cloud Run...")
 
         self._get_googlecloud_project()
+        self._enable_apis()
         self._create_placeholder()
         self._set_on_cloudrun()
 
@@ -54,31 +54,27 @@ class PlatformDeployer:
 
         self._show_success_message()
 
-    def _get_googlecloud_project(self):
-        """Use the gcloud CLI to get the current active project"""
-        msg = "Finding active Google Cloud project"
+    def _enable_apis(self):
+        """Before any other work can begin, a number of APIs must be enabled on the project"""
 
-        cmd = f"gcloud config get-value project"
-        output_obj = self.sd.execute_subp_run(cmd)
-        project_id = output_obj.stdout.decode()
-        if project_id == "(unset)": 
-            raise CommandError(cloudrun_msgs.no_project_id)
-        msg = f"  Found Google Cloud project: {project_id}"
+        msg = "Enabling Google Cloud APIs..."
         self.sd.write_output(msg)
 
-    def _get_googlerun_region(self):
-        """Use the gcloud CLI to get the Cloud Run region"""
-        msg = "Finding configured Cloud Run region"
+        cmd = f"""gcloud services enable \
+            run.googleapis.com \
+            iam.googleapis.com \
+            compute.googleapis.com \
+            sql-component.googleapis.com \
+            sqladmin.googleapis.com \
+            cloudbuild.googleapis.com \
+            cloudresourcemanager.googleapis.com \
+            secretmanager.googleapis.com"""
+        self.sd.execute_subp_run(cmd)
 
-        cmd = f"gcloud config get-value run/region"
-        output_obj = self.sd.execute_subp_run(cmd)
-        region = output_obj.stdout.decode()
-        if region == "(unset)": 
-            raise CommandError(cloudrun_msgs.no_cloudrun_region)
-        msg = f"  Found Cloud Run region: {region}"
+        msg = "  APIs enabled."
         self.sd.write_output(msg)
-        return region
 
+        
 
     def _create_placeholder(self):
         """Within the context of Google Cloud, things can exist.
@@ -220,42 +216,42 @@ class PlatformDeployer:
         self.sd.write_output(msg)
 
 
-    def _add_flytoml_file(self):
-        """Add a minimal fly.toml file."""
+    def _add_cloudbuild_yaml(self):
+        """Add a cloudbuild.yaml file."""
         # File should be in project root, if present.
-        self.sd.write_output(f"\n  Looking in {self.sd.git_path} for fly.toml file...")
-        flytoml_present = 'fly.toml' in os.listdir(self.sd.git_path)
+        self.sd.write_output(f"\n  Looking in {self.sd.git_path} for cloudbuild.yaml file...")
+        cloudbuildyaml_present = 'cloudbuild.yaml' in os.listdir(self.sd.git_path)
 
-        if flytoml_present:
-            self.sd.write_output("    Found existing fly.toml file.")
+        if cloudbuildyaml_present:
+            self.sd.write_output("    Found existing cloudbuild.yaml file.")
         else:
             # Generate file from template.
             context = {
-                'deployed_project_name': self.deployed_project_name, 
+                'service_name': CLOUD_RUN_SERVICE_NAME, 
                 }
-            path = self.sd.project_root / 'fly.toml'
-            write_file_from_template(path, 'fly.toml', context)
+            path = self.sd.project_root / 'cloudbuild.yaml'
+            write_file_from_template(path, 'cloudbuild.yaml', context)
 
-            msg = f"\n    Generated fly.toml: {path}"
+            msg = f"\n    Generated cloudbuild.yaml: {path}"
             self.sd.write_output(msg)
             return path
 
 
     def _modify_settings(self):
-        """Add settings specific to Fly.io."""
-        #   Check if a fly.io section is present. If not, add settings. If already present,
+        """Add settings specific to Cloud Run."""
+        #   Check if a cloudrun section is present. If not, add settings. If already present,
         #   do nothing.
-        self.sd.write_output("\n  Checking if settings block for Fly.io present in settings.py...")
+        self.sd.write_output("\n  Checking if settings block for Cloud Run present in settings.py...")
 
         with open(self.sd.settings_path) as f:
             settings_string = f.read()
 
-        if 'if os.environ.get("ON_FLYIO"):' in settings_string:
-            self.sd.write_output("\n    Found Fly.io settings block in settings.py.")
+        if 'if os.environ.get("ON_CLOUDRUN"):' in settings_string:
+            self.sd.write_output("\n    Found Cloud Run settings block in settings.py.")
             return
 
-        # Add Fly.io settings block.
-        self.sd.write_output("    No Fly.io settings found in settings.py; adding settings...")
+        # Add Cloud Run settings block.
+        self.sd.write_output("    No Cloud Run settings found in settings.py; adding settings...")
 
         safe_settings_string = mark_safe(settings_string)
         context = {
@@ -321,22 +317,16 @@ class PlatformDeployer:
 
         # Push project.
         # Use execute_command() to stream output of this long-running command.
-        self.sd.write_output("  Deploying to Fly.io...")
-        cmd = "fly deploy"
+        self.sd.write_output("  Deploying to Cloud Run...")
+        cmd = "gcloud builds submit"
         self.sd.execute_command(cmd)
 
         # Open project.
         self.sd.write_output("  Opening deployed app in a new browser tab...")
-        cmd = "fly open"
+        cmd = "gcloud run services describe django --format \"value(status.url)\""
         output = self.sd.execute_subp_run(cmd)
         self.sd.write_output(output)
-
-        # Get url of deployed project.
-        url_re = r'(opening )(http.*?)( \.\.\.)'
-        output_str = output.stdout.decode()
-        m = re.search(url_re, output_str)
-        if m:
-            self.deployed_url = m.group(2).strip()
+        self.deployed_url = output
 
 
     def _show_success_message(self):
@@ -390,17 +380,8 @@ class PlatformDeployer:
 
         # When running unit tests, will not be logged into CLI.
         if not self.sd.unit_testing:
-            self.deployed_project_name = self._get_deployed_project_name()
 
-            # If using automate_all, we need to create the app before creating
-            #   the db. But if there's already an app with no deployment, we can 
-            #   use that one (maybe created from a previous automate_all run).
-            # DEV: Update _get_deployed_project_name() to not throw error if
-            #   using automate_all. _create_flyio_app() can exit if not using
-            #   automate_all(). If self.deployed_project_name is set, just return
-            #   because we'll use that project. If it's not set, call create.
-            if not self.deployed_project_name and self.sd.automate_all:
-                self.deployed_project_name = self._create_flyio_app()
+            self.deployed_project_name = self._get_deployed_project_name()
 
             # Create the db now, before any additional configuration. Get region
             #   so we know where to create the db.
@@ -415,6 +396,37 @@ class PlatformDeployer:
         # All creation has been taken earlier, during validation.
         pass
 
+    
+    def _get_googlecloud_project(self):
+        """Use the gcloud CLI to get the current active project"""
+        msg = "Finding active Google Cloud project"
+
+        cmd = f"gcloud config get-value project"
+        output_obj = self.sd.execute_subp_run(cmd)
+        project_id = output_obj.stdout.decode()
+        if project_id == "(unset)": 
+            raise CommandError(cloudrun_msgs.no_project_id)
+        msg = f"  Found Google Cloud project: {project_id}"
+        self.sd.write_output(msg)
+        self.project_id = project_id
+
+    def _get_googlerun_region(self):
+        """Use the gcloud CLI to get the Cloud Run region"""
+        msg = "Finding configured Cloud Run region"
+
+        cmd = f"gcloud config get-value run/region"
+        output_obj = self.sd.execute_subp_run(cmd)
+        region = output_obj.stdout.decode()
+        if region == "(unset)": 
+            raise CommandError(cloudrun_msgs.no_cloudrun_region)
+        msg = f"  Found Cloud Run region: {region}"
+        self.sd.write_output(msg)
+        return region
+
+    def _get_random_string(length=20):
+        """Get a random string, for secret keys and database passwords"""
+        return get_random_string(length,
+                    allowed_chars='abcdefghijklmnopqrstuvwxyz0123456789')
 
     # --- Helper methods for methods called from simple_deploy.py ---
 
@@ -425,200 +437,114 @@ class PlatformDeployer:
         if output_obj.returncode:
             raise CommandError(cloudrun_msgs.cli_not_installed)
 
-    def _get_deployed_project_name(self):
-        """Get the Fly.io project name.
-        Parse the output of `flyctl apps list`, and look for an app name
-          that doesn't have a value set for LATEST DEPLOY. This indicates
-          an app that has just been created, and has not yet been deployed.
-
-        Returns:
-        - String representing deployed project name.
-        - Empty string if no deployed project name found, but using automate_all.
-        - Raises CommandError if deployed project name can't be found.
-        """
-        msg = "\nLooking for Fly.io app to deploy against..."
-        self.sd.write_output(msg, skip_logging=True)
-
-        # Get apps info.
-        cmd = "flyctl apps list"
-        output_obj = self.sd.execute_subp_run(cmd)
-        output_str = output_obj.stdout.decode()
-
-        # Only keep relevant output; get rid of blank lines, update messages,
-        #   and line with labels like NAME and LATEST DEPLOY.
-        lines = output_str.split('\n')
-        lines = [line for line in lines if line]
-        lines = [line for line in lines if 'update' not in line.lower()]
-        lines = [line for line in lines if 'NAME' not in line]
-        lines = [line for line in lines if 'builder' not in line]
-
-        # An app that has not been deployed to will only have values set for NAME,
-        #   OWNER, and STATUS. PLATFORM and LATEST DEPLOY will be empty.
-        app_name = ''
-        for line in lines:
-            # The desired line has three elements.
-            parts = line.split()
-            if len(parts) == 3:
-                app_name = parts[0]
-
-        # Return deployed app name, or raise CommandError.
-        if app_name:
-            msg = f"  Found Fly.io app: {app_name}"
-            self.sd.write_output(msg, skip_logging=True)
-            return app_name
-        elif self.sd.automate_all:
-            msg = "  No app found, but continuing with --automate-all..."
-            self.sd.write_output(msg, skip_logging=True)
-            # Simply return an empty string to indicate no suitable app was found,
-            #   and we'll create one later.
-            return ""
-        else:
-            # Can't continue without a Fly.io app to configure against.
-            raise CommandError(flyio_msgs.no_project_name)
-
-    def _create_flyio_app(self):
-        """Create a new Fly.io app.
-        Assumes caller already checked for automate_all, and that a suitable
-          app is not already available.
-        Returns:
-        - String representing new app name.
-        - Raises CommandError if an app can't be created.
-        """
-        msg = "  Creating a new app on Fly.io..."
-        self.sd.write_output(msg, skip_logging=True)
-
-        cmd = "flyctl apps create --generate-name"
-        output_obj = self.sd.execute_subp_run(cmd)
-        output_str = output_obj.stdout.decode()
-        self.sd.write_output(output_str, skip_logging=True)
-
-        # Get app name.
-        app_name_re = r'(New app created: )(\w+\-\w+\-\d+)'
-        flyio_app_name = ''
-        m = re.search(app_name_re, output_str)
-        if m:
-            flyio_app_name = m.group(2).strip()
-
-        if flyio_app_name:
-            msg = f"  Created new app: {flyio_app_name}"
-            self.sd.write_output(msg, skip_logging=True)
-            return flyio_app_name
-        else:
-            # Can't continue without a Fly.io app to deploy to.
-            raise CommandError(flyio_msgs.create_app_failed)
-
-
-    def _get_region(self):
-        """Get the region that the Fly.io app is configured for. We'll need this
-        to create a postgres database.
-
-        Parse the output of `flyctl regions list -a app_name`.
-
-        Returns:
-        - String representing region.
-        - Raises CommandError if can't find region.
-        """
-
-        msg = "Looking for Fly.io region..."
-        self.sd.write_output(msg, skip_logging=True)
-
-        # Get region output.
-        cmd = f"flyctl regions list -a {self.deployed_project_name}"
-        output_obj = self.sd.execute_subp_run(cmd)
-        output_str = output_obj.stdout.decode()
-
-        # Look for first three-letter line after Region Pool.
-        region = ''
-        pool_found = False
-        lines = output_str.split('\n')
-        for line in lines:
-            if not pool_found and "Region Pool" in line:
-                pool_found = True
-                continue
-
-            # This is the first line after Region Pool.
-            if pool_found:
-                region = line.strip()
-                break
-
-        # Return region name, or raise CommandError.
-        if region:
-            msg = f"  Found region: {region}"
-            self.sd.write_output(msg, skip_logging=True)
-            return region
-        else:
-            # Can't continue without a Fly.io region to configure against.
-            raise CommandError(flyio_msgs.region_not_found(self.deployed_project_name))
 
     def _create_db(self):
-        """Create a db to deploy to, if none exists.
+        """Create a postgres instance, database, user, and secret.
+
+        Method will use an existing instance if it exists, with prompt.
+        
         Returns: 
         - 
         - Raises CommandError if...
         """
-        msg = "Looking for a Postgres database..."
+
+        self.instance_name = f"{CLOUD_RUN_SERVICE_NAME}-instance"
+        self.database_name = "django-db" #TODO(glasnt) change?
+        self.database_user = "django-user"
+        self.database_pass = get_random_string()
+        self.instance_pass = get_random_string()
+
+        msg = "Looking for a Postgres instance..."
         self.sd.write_output(msg, skip_logging=True)
+
+        instance_exists = self._check_if_dbinstance_exists()
+
+        if instance_exists:
+            msg = "  Found existing instance."
+            self.sd.write_output(msg, skip_logging=True)
+        else:
+            msg = f"  Create a new Postgres database..."
+            self.sd.write_output(msg, skip_logging=True)
+
+            # TODO(glasnt) instance size?
+            cmd = f"""gcloud sql instances create {self.instance_name} \
+                        --database-version POSTGRES_14 --cpu 1 --memory 2GB  \
+                        --region {self.region} \
+                        --project {self.project_id} \
+                        --root-password {self.instance_pass} \
+                        --async --format="value(name)""
+                """
+
+            # If not using automate_all, make sure it's okay to create a resource
+            #   on user's account.
+            if not self.sd.automate_all:
+                self._confirm_create_instance(db_cmd=cmd)
+
+            # Create database.
+            # Use execute_command(), to stream output of long-running process.
+            self.sd.execute_command(cmd, skip_logging=True)
+
+            msg = "  Created Postgres instance"
+            self.sd.write_output(msg, skip_logging=True)
 
         db_exists = self._check_if_db_exists()
-
         if db_exists:
-            return
+            msg = "  Database exists, using that one."
+            self.sd.write_output(msg, skip_logging=True)
+        else:
+            msg = "  Creating new database..."
+            self.sd.write_output(msg, skip_logging=True)
+            cmd = f"""gcloud sql databases create {self.database_name} \
+                        --instance {self.instance_name}
+                """
+            output_obj = self.sd.execute_subp_run(cmd)
+            msg = "  Created Postgres database"
+            self.sd.write_output(msg, skip_logging=True)
+        
 
-        # No db found, create a new db.
-        msg = f"  Create a new Postgres database..."
+        user_exists = self._check_if_dbuser_exists()
+        secret_exists = self._check_if_dbsecret_exist()
+        if user_exists and secret_exists:
+            msg = "  Database user and secret exists."
+            self.sd.write_output(msg)
+        elif user_exists and not secret_exists:
+            msg = "  Database user exists, but password not stored."
+        elif not user_exists and not secret_exists:
+            msg = "  Database user doesn't exist. Creating."
+
+        #TODO(glasnt): create user
+        #TODO(glasnt): create secret
+
+        msg = "  Created secret"
         self.sd.write_output(msg, skip_logging=True)
 
-        self.db_name = f"{self.deployed_project_name}-db"
-        cmd = f"flyctl postgres create --name {self.db_name} --region {self.region}"
-        cmd += " --initial-cluster-size 1 --vm-size shared-cpu-1x --volume-size 1"
-
-        # If not using automate_all, make sure it's okay to create a resource
-        #   on user's account.
-        if not self.sd.automate_all:
-            self._confirm_create_db(db_cmd=cmd)
-
-        # Create database.
-        # Use execute_command(), to stream output of long-running process.
-        self.sd.execute_command(cmd, skip_logging=True)
-
-        msg = "  Created Postgres database."
-        self.sd.write_output(msg, skip_logging=True)
-
-        # Run `attach` command (and confirm DATABASE_URL is set?)
-        msg = "  Attaching database to Fly.io app..."
-        self.sd.write_output(msg, skip_logging=True)
-        cmd = f"flyctl postgres attach --app {self.deployed_project_name} {self.db_name}"
-
-        output_obj = self.sd.execute_subp_run(cmd)
-        output_str = output_obj.stdout.decode()
-        self.sd.write_output(output_str, skip_logging=True)
-
-        msg = "  Attached database to app."
-        self.sd.write_output(msg, skip_logging=True)
-
-    def _check_if_db_exists(self):
-        """Check if a postgres db already exists that should be used with this app.
+    def _check_if_dbinstance_exists(self):
+        """Check if a postgres instance already exists that should be used with this app.
         Returns:
         - True if db found.
         - False if not found.
         """
 
-        # First, see if any Postgres clusters exist.
-        cmd = "flyctl postgres list"
+        # First, see if any Postgres instances exist.
+        cmd = "gcloud sql instances list"
         output_obj = self.sd.execute_subp_run(cmd)
         output_str = output_obj.stdout.decode()
 
-        if "No postgres clusters found" in output_str:
-            msg = "  No Postgres database found."
+        if "Listed 0 items" in output_str:
+            msg = "  No Postgres instance found."
             self.sd.write_output(msg, skip_logging=True)
             return False
-        else:
-            msg = "  A Postgres database was found."
+        elif self.instance_name in output_str:
+            msg = "  Postgres instance was found."
             self.sd.write_output(msg, skip_logging=True)
             return True
+        else:
+            msg = "  A Postgres instance was found, but not what we expected."
+            self.sd.write_output(msg, skip_logging=True)
+            return False
 
-    def _confirm_create_db(self, db_cmd):
-        """We really need to confirm that the user wants a db created on their behalf.
+    def _confirm_create_instance(self, db_cmd):
+        """We really need to confirm that the user wants a instance created on their behalf.
         Show the command that will be run on the user's behalf.
         Returns:
         - True if confirmed.
@@ -627,11 +553,32 @@ class PlatformDeployer:
         if self.sd.unit_testing:
             return
 
-        self.stdout.write(flyio_msgs.confirm_create_db(db_cmd))
+        self.stdout.write(cloudrun_msgs.confirm_create_instance(db_cmd))
         confirmed = self.sd.get_confirmation(skip_logging=True)
 
         if confirmed:
-            self.stdout.write("  Creating database...")
+            self.stdout.write("  Creating instance...")
         else:
             # Quit and invite the user to create a database manually.
-            raise CommandError(flyio_msgs.cancel_no_db)
+            raise CommandError(cloudrun_msgs.cancel_no_instance)
+
+    def _check_if_db_exists(self):
+        """Check if a postgres datbase already exists that should be used with this app.
+        Returns:
+        - True if db found.
+        - False if not found.
+        """
+
+        # First, see if any Postgres instances exist.
+        cmd = f"gcloud sql databases list --instance {self.instance_name}"
+        output_obj = self.sd.execute_subp_run(cmd)
+        output_str = output_obj.stdout.decode()
+
+        if self.database_name in output_str:
+            msg = f"  Database {self.database_name} found"
+            self.sd.write_output(msg, skip_logging=True)
+            return True
+        else:
+            msg = "  Database not found"
+            self.sd.write_output(msg, skip_logging=True)
+            return False

@@ -97,8 +97,8 @@ If you can get this command to work, you can run simple_deploy again and the
 rest of the process may work.
 """
 
-cancel_no_db = """
-A database is required for deployment. You may be able to create a database
+cancel_no_instance = """
+A database instance is required for deployment. You may be able to create a database instance
 manually, and configure it to work with this app.
 """
 
@@ -137,12 +137,12 @@ def confirm_use_org_name(org_name):
     return msg
 
 
-def confirm_create_db(db_cmd):
-    """Confirm it's okay to create a Postgres database on the user's account."""
+def confirm_create_instance(db_cmd):
+    """Confirm it's okay to create a Postgres instance on the user's account."""
 
     msg = dedent(f"""
-        A Postgres database is required to continue with deployment. If you confirm this,
-        the following command will be run, to create a new database on your account:
+        A Postgres instance is required to continue with deployment. If you confirm this,
+        the following command will be run, to create a new instance on your account:
         $ {db_cmd}
     """)
 
