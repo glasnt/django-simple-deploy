@@ -115,6 +115,8 @@ class Command(BaseCommand):
 
         # Platform.sh arguments.
         self.deployed_project_name = options['deployed_project_name']
+
+        # Common settings (platformsh, cloudrun)
         self.region = options['region']
 
         # Developer arguments.
