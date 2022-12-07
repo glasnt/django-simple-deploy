@@ -24,9 +24,8 @@ confirm_preliminary = """
 
 confirm_automate_all = """
 The --automate-all flag means simple_deploy will:
-- Run `gcloud run deploy` for you, to create a placeholder Cloud Run service.
-- Configure your project for deployment on Cloud Run.
-- Commit all changes to your project that are necessary for deployment.
+- Commit all changes to your project that are necessary for deployment, including:
+  - Create a Cloud SQL instance, database, username, and associated secrets.
 - Apply these changes to Google Cloud.
 - Open your deployed project in a new browser tab.
 """
@@ -102,6 +101,13 @@ A database instance is required for deployment. You may be able to create a data
 manually, and configure it to work with this app.
 """
 
+no_database_password = """
+A database user exists, but there's no secret storing it's password. 
+Based on this, we can't continue the process.
+
+TODO(glasnt): how to fix this process.
+"""
+
 
 # --- Dynamic strings ---
 # These need to be generated in functions, to display information that's 
@@ -161,13 +167,13 @@ def success_msg(log_output=''):
             $ git add .
             $ git commit -am "Configured project for deployment."
         - Push your project to Cloud Run's servers:
-            $ fly deploy
+            $ gcloud builds submit
         - Open your project:
-            $ fly open    
+            $ gcloud run services list   
         - As you develop your project further:
             - Make local changes
             - Commit your local changes
-            - Run `fly deploy`
+            - Run `gcloud builds submit`
     """)
 
     if log_output:

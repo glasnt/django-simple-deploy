@@ -3,7 +3,7 @@
 
 import sys, os, re, subprocess
 from pathlib import Path
-
+import tempfile
 from django.conf import settings
 from django.core.management.base import CommandError
 from django.utils.crypto import get_random_string
@@ -36,9 +36,13 @@ class PlatformDeployer:
         self.sd.write_output("Configuring project for deployment to Cloud Run...")
 
         self._get_googlecloud_project()
+        self._get_googlerun_region()
         self._enable_apis()
         self._create_placeholder()
+        self._get_cloudrun_service_url()
         self._set_on_cloudrun()
+
+        self._create_db() # TODO(glasnt) move?
 
         self._generate_procfile()
         self._add_gcloudignore()
@@ -98,13 +102,25 @@ class PlatformDeployer:
         
         # Create placeholder service
         # Set visibility at this stage, and it should be always publicly accessible.
-        cmd = f"gcloud run deploy django --image gcr.io/cloudrun/hello --allow-unauthenticated"
+        cmd = f"gcloud run deploy {CLOUD_RUN_SERVICE_NAME} --image gcr.io/cloudrun/hello --allow-unauthenticated"
         output_obj = self.sd.execute_subp_run(cmd)
         output_str = output_obj.stdout.decode()
         self.sd.write_output(output_str)
 
         msg = "  Placeholder service created."
         self.sd.write_output(msg)
+
+    def _get_cloudrun_service_url(self): 
+        """Using the service name, get the cloud run service URL"""
+
+        msg = "Getting Cloud Run service URL...."
+        self.sd.write_output(msg)
+
+        cmd = f"gcloud run services describe {CLOUD_RUN_SERVICE_NAME} --format \"value(status.url)\""
+        output_obj = self.sd.execute_subp_run(cmd)
+        output_str = output_obj.stdout.decode()
+        self.sd.write_output(output_str)
+        self.deployed_url = output_str.strip()
 
 
 
@@ -199,7 +215,6 @@ class PlatformDeployer:
             venv_path = Path(venv_dir)
             gcloudignore_str += f"\n{venv_path.name}/\n"
 
-
         # Add python cruft.
         gcloudignore_str += "\n__pycache__/\n*.pyc\n"
 
@@ -255,8 +270,8 @@ class PlatformDeployer:
 
         safe_settings_string = mark_safe(settings_string)
         context = {
+            'deployed_url': self.deployed_url.replace("https://", ""),
             'current_settings': safe_settings_string,
-            'deployed_project_name': self.deployed_project_name,
         }
         path = Path(self.sd.settings_path)
         write_file_from_template(path, 'settings.py', context)
@@ -281,7 +296,6 @@ class PlatformDeployer:
 
         if self.sd.using_req_txt:
             self.sd.add_req_txt_pkg('psycopg2-binary')
-        elif self.sd.using_pipenv:
             self.sd.add_pipenv_pkg('psycopg2-binary')
 
     def _add_dj_database_url(self):
@@ -323,10 +337,7 @@ class PlatformDeployer:
 
         # Open project.
         self.sd.write_output("  Opening deployed app in a new browser tab...")
-        cmd = "gcloud run services describe django --format \"value(status.url)\""
-        output = self.sd.execute_subp_run(cmd)
-        self.sd.write_output(output)
-        self.deployed_url = output
+        self.sd.write_output(self.deployed_url)
 
 
     def _show_success_message(self):
@@ -378,24 +389,10 @@ class PlatformDeployer:
         """
         self._validate_cli()
 
-        # When running unit tests, will not be logged into CLI.
-        if not self.sd.unit_testing:
-
-            self.deployed_project_name = self._get_deployed_project_name()
-
-            # Create the db now, before any additional configuration. Get region
-            #   so we know where to create the db.
-            self.region = self._get_region()
-            self._create_db()
-        else:
-            self.deployed_project_name = self.sd.deployed_project_name
-
 
     def prep_automate_all(self):
-        """Take any further actions needed if using automate_all."""
-        # All creation has been taken earlier, during validation.
+        """Do intial work for automating entire process."""
         pass
-
     
     def _get_googlecloud_project(self):
         """Use the gcloud CLI to get the current active project"""
@@ -421,9 +418,9 @@ class PlatformDeployer:
             raise CommandError(cloudrun_msgs.no_cloudrun_region)
         msg = f"  Found Cloud Run region: {region}"
         self.sd.write_output(msg)
-        return region
+        self.region = region
 
-    def _get_random_string(length=20):
+    def _get_random_string(self, length=20):
         """Get a random string, for secret keys and database passwords"""
         return get_random_string(length,
                     allowed_chars='abcdefghijklmnopqrstuvwxyz0123456789')
@@ -441,7 +438,9 @@ class PlatformDeployer:
     def _create_db(self):
         """Create a postgres instance, database, user, and secret.
 
-        Method will use an existing instance if it exists, with prompt.
+        This is a complex setup if any existing element is presumed to exist. 
+        However, instance creation is long, so the only element that can be re-used is
+        the instance. This will greatly help with testing.
         
         Returns: 
         - 
@@ -451,8 +450,9 @@ class PlatformDeployer:
         self.instance_name = f"{CLOUD_RUN_SERVICE_NAME}-instance"
         self.database_name = "django-db" #TODO(glasnt) change?
         self.database_user = "django-user"
-        self.database_pass = get_random_string()
-        self.instance_pass = get_random_string()
+        self.database_pass = self._get_random_string()
+        self.instance_pass = self._get_random_string()
+        self.database_secret = f"{CLOUD_RUN_SERVICE_NAME}-secret"
 
         msg = "Looking for a Postgres instance..."
         self.sd.write_output(msg, skip_logging=True)
@@ -468,11 +468,10 @@ class PlatformDeployer:
 
             # TODO(glasnt) instance size?
             cmd = f"""gcloud sql instances create {self.instance_name} \
-                        --database-version POSTGRES_14 --cpu 1 --memory 2GB  \
+                        --database-version POSTGRES_14 --cpu 2 --memory 4GB  \
                         --region {self.region} \
                         --project {self.project_id} \
                         --root-password {self.instance_pass} \
-                        --async --format="value(name)""
                 """
 
             # If not using automate_all, make sure it's okay to create a resource
@@ -505,18 +504,40 @@ class PlatformDeployer:
         user_exists = self._check_if_dbuser_exists()
         secret_exists = self._check_if_dbsecret_exist()
         if user_exists and secret_exists:
-            msg = "  Database user and secret exists."
+            msg = "  Database user and secret exists. This is okay."
             self.sd.write_output(msg)
         elif user_exists and not secret_exists:
-            msg = "  Database user exists, but password not stored."
+            msg = "  Database user exists, but password not stored. I'm sad."
+            raise CommandError(cloudrun_msgs.no_database_password)
         elif not user_exists and not secret_exists:
             msg = "  Database user doesn't exist. Creating."
+            
 
-        #TODO(glasnt): create user
-        #TODO(glasnt): create secret
+            msg = "  Creating new user..."
+            self.sd.write_output(msg, skip_logging=True)
+            cmd = f"""gcloud sql user create {self.database_user} \
+                        --instance {self.instance_name} \
+                        --password {self.database_pass}
+                """
+            output_obj = self.sd.execute_subp_run(cmd)
+            msg = "  Created postgres user"
+            self.sd.write_output(msg, skip_logging=True)
 
-        msg = "  Created secret"
-        self.sd.write_output(msg, skip_logging=True)
+            msg = "  Creating database secret..."
+            self.sd.write_output(msg, skip_logging=True)
+
+            cmd = f"""gcloud sql user create {self.database_user} \
+                        --instance {self.instance_name} \
+                        --password {self.database_pass}
+                """
+            output_obj = self.sd.execute_subp_run(cmd)
+            msg = "  Created postgres user"
+            self.sd.write_output(msg, skip_logging=True)
+
+            #TODO create secret
+
+            msg = "  Created secret"
+            self.sd.write_output(msg, skip_logging=True)
 
     def _check_if_dbinstance_exists(self):
         """Check if a postgres instance already exists that should be used with this app.
@@ -536,6 +557,8 @@ class PlatformDeployer:
             return False
         elif self.instance_name in output_str:
             msg = "  Postgres instance was found."
+            print(output_str)
+            breakpoint()
             self.sd.write_output(msg, skip_logging=True)
             return True
         else:
@@ -580,5 +603,39 @@ class PlatformDeployer:
             return True
         else:
             msg = "  Database not found"
+            self.sd.write_output(msg, skip_logging=True)
+            return False
+
+
+    def _check_if_dbuser_exists(self):
+        """Check if a postgres user already exists that should be used with this app.
+        """
+        cmd = f"gcloud sql users list --instance {self.instance_name} --filter \"name:{self.database_user}\""
+        output_obj = self.sd.execute_subp_run(cmd)
+        output_str = output_obj.stdout.decode()
+
+        if self.database_user in output_str:
+            msg = f"  User {self.database_user} found"
+            self.sd.write_output(msg, skip_logging=True)
+            return True
+        else:
+            msg = "  User not found"
+            self.sd.write_output(msg, skip_logging=True)
+            return False
+
+
+    def _check_if_dbsecret_exists(self):
+        """Check if a secret already exists that should be used with this app.
+        """
+        cmd = f"gcloud secrets list" # --filter \"name:{self.database.secret}\""
+        output_obj = self.sd.execute_subp_run(cmd)
+        output_str = output_obj.stdout.decode()
+
+        if self.database_secret in output_str:
+            msg = f"  Secret {self.database_secret} found"
+            self.sd.write_output(msg, skip_logging=True)
+            return True
+        else:
+            msg = "  Secret not found"
             self.sd.write_output(msg, skip_logging=True)
             return False
