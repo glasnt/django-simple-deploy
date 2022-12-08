@@ -46,7 +46,7 @@ no_project_id = """
 A Google Cloud project could not be found.
 
 The simple_deploy command expects that you've already created a project
-to deploy a Cloud Run service in
+to deploy a Cloud Run service in.
 
 If you haven't done so, create a new project with billing enabled: 
 
@@ -59,7 +59,7 @@ Then, configure your gcloud CLI for this project:
 Then run simple_deploy again.
 """
 
-
+# TODO(glasnt): remove. 
 no_cloudrun_region = """
 A configuration for the Cloud Run region could not be found.
 
@@ -101,6 +101,13 @@ A database instance is required for deployment. You may be able to create a data
 manually, and configure it to work with this app.
 """
 
+cancel_service_name = """
+A service name could not be generated for you that would be valid in Cloud Run. 
+To correct this, run simple-deploy again, specifying your preferred service name: 
+
+  $ 
+"""
+
 no_database_password = """
 A database user exists, but there's no secret storing it's password. 
 Based on this, we can't continue the process.
@@ -109,23 +116,10 @@ TODO(glasnt): how to fix this process.
 """
 
 
+
 # --- Dynamic strings ---
 # These need to be generated in functions, to display information that's 
 #   determined as the script runs.
-
-def region_not_found(app_name):
-    """Could not find a region to deploy to."""
-    #TODO(glasnt) not dynamic. 
-    msg = dedent(f"""
-        --- A Google Cloud region was not found. ---
-
-        We need to know what region the app is going to be deployed to.
-        We could not find a region in the output of:
-
-        $ gcloud config get-value run/region
-    """)
-
-    return msg
 
 
 def confirm_use_org_name(org_name):
@@ -199,3 +193,6 @@ def success_msg_automate_all(deployed_url):
     """)
     return msg
 
+
+def confirm_service_name(project_name, service_name):
+    pass

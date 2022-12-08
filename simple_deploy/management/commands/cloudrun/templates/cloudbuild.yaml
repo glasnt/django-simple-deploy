@@ -1,5 +1,32 @@
 steps:
-  - name: busybox
-    args: ["true"]
-# "{{ service_name }}"
-# TODO(glasnt): fill
+  - id: build
+    name: gcr.io/k8s-skaffold/pack
+    entrypoint: pack
+    args:
+      - build
+      - $_IMAGE
+      - --builder=gcr.io/buildpacks/builder:v1
+
+  - id: push
+    name: gcr.io/cloud-builders/docker
+    args:
+      - push
+      - $_IMAGE
+
+  - id: migrate
+    name: "gcr.io/google.com/cloudsdktool/cloud-sdk"
+    entrypoint: "gcloud"
+    args: ["beta", "run", "jobs", "execute", "migrate", "--region", "$_REGION", "--wait"]
+
+  - id: deploy
+    name: "gcr.io/google.com/cloudsdktool/cloud-sdk"
+    entrypoint: "gcloud"
+    args: ["run", "deploy", "${_SERVICE}", "--region", "${_REGION}", "--image", "${_IMAGE}"]
+
+options: 
+  dynamic_substitutions: true
+
+substitutions:
+  _REGION: {{ region }}
+  _SERVICE: {{ service }}
+  _IMAGE:  {{ image_name}}
