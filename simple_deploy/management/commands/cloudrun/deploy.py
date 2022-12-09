@@ -223,7 +223,7 @@ class PlatformDeployer:
 
     def _create_migrate_job(self): 
         self.log("Creating migration job definition...")
-        self.run(f"""gcloud beta run jobs create migrate-database \
+        self.run(f"""gcloud beta run jobs create migrate \
             --image {self.image_name} \
             --region {self.region} \
             --set-secrets DATABASE_URL={self.database_secret}:latest \
@@ -501,7 +501,7 @@ class PlatformDeployer:
         self.instance_fqn = f"{self.project_id}:{self.region}:{self.instance_name}"
         self.database_pass = self._get_random_string()
         self.instance_pass = self._get_random_string()
-        self.database_secret = f"{self.service_name}-secret"
+        self.database_secret = f"{self.service_name}-database_url"
 
         self.log("Looking for a Postgres instance...")
 
@@ -510,7 +510,7 @@ class PlatformDeployer:
         if instance_exists:
             self.log("  Found existing instance.")
         else:
-            self.log(f"  Create a new Postgres database...")
+            self.log(f"  Create a new Postgres database (this may take a while)...")
 
             # TODO(glasnt) instance size?
             cmd = f"""gcloud sql instances create {self.instance_name} \
@@ -557,13 +557,13 @@ class PlatformDeployer:
                         --instance {self.instance_name} \
                         --password {self.database_pass}
                         """)
-            self.log("  Created database user")
+            self.log("  Created database user.")
 
             self.log("  Creating database secret...")
-            self.log("Create database secret")
             self.database_url = f"postgres://{self.database_user}:{self.database_pass}@//cloudsql/{self.instance_fqn}/{self.database_name}"
             with tempfile.NamedTemporaryFile() as fp: 
                 fp.write(str.encode(self.database_url))
+                fp.seek(0)
                 self.run(f"gcloud secrets create {self.database_secret} --data-file {fp.name}")
             self.log("  Created secret")
 
@@ -604,12 +604,10 @@ class PlatformDeployer:
         if self.sd.unit_testing:
             return
 
-        self.log(cloudrun_msgs.confirm_create_instance(db_cmd))
+        self.log(cloudrun_msgs.confirm_create_instance(re.sub(' +', ' ',db_cmd)))
         confirmed = self.sd.get_confirmation(skip_logging=True)
 
-        if confirmed:
-            self.log("  Creating instance...")
-        else:
+        if not confirmed:
             # Quit and invite the user to create a database manually.
             raise CommandError(cloudrun_msgs.cancel_no_instance)
 
