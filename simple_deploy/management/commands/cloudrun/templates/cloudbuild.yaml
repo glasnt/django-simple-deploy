@@ -16,7 +16,7 @@ steps:
   - id: migrate
     name: "gcr.io/google.com/cloudsdktool/cloud-sdk"
     entrypoint: "gcloud"
-    args: ["beta", "run", "jobs", "execute", "migrate", "--region", "$_REGION", "--wait"]
+    args: ["beta", "run", "jobs", "execute", "{{job_name}}", "--region", "$_REGION", "--wait"]
 
   - id: deploy
     name: "gcr.io/google.com/cloudsdktool/cloud-sdk"

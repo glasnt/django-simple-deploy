@@ -59,7 +59,7 @@ Then, configure your gcloud CLI for this project:
 Then run simple_deploy again.
 """
 
-# TODO(glasnt): remove. 
+# TODO(glasnt): remove.
 no_cloudrun_region = """
 A configuration for the Cloud Run region could not be found.
 
@@ -105,34 +105,28 @@ cancel_service_name = """
 A service name could not be generated for you that would be valid in Cloud Run. 
 To correct this, run simple-deploy again, specifying your preferred service name: 
 
-  $ 
+  $ python manage.py simple_deploy --platform cloudrun --deployed_project_name YOURSERVICENAME
 """
-
-no_database_password = """
-A database user exists, but there's no secret storing it's password. 
-Based on this, we can't continue the process.
-
-TODO(glasnt): how to fix this process.
-"""
-
 
 
 # --- Dynamic strings ---
-# These need to be generated in functions, to display information that's 
+# These need to be generated in functions, to display information that's
 #   determined as the script runs.
 
 
 def confirm_use_org_name(org_name):
     """Confirm use of this org name to create a new project."""
 
-    msg = dedent(f"""
+    msg = dedent(
+        f"""
         --- The Platform.sh CLI requires an organization name when creating a new project. ---
         When using --automate-all, a project will be created on your behalf. The following
         organization name was found: {org_name}
 
         This organization will be used to create a new project. If this is not okay,
         enter n to cancel this operation.
-    """)
+    """
+    )
 
     return msg
 
@@ -140,19 +134,22 @@ def confirm_use_org_name(org_name):
 def confirm_create_instance(db_cmd):
     """Confirm it's okay to create a Postgres instance on the user's account."""
 
-    msg = dedent(f"""
+    msg = dedent(
+        f"""
         A Postgres instance is required to continue with deployment. If you confirm this,
         the following command will be run, to create a new instance on your account:
         $ {db_cmd}
-    """)
+    """
+    )
 
     return msg
 
 
-def success_msg(log_output=''):
+def success_msg(log_output=""):
     """Success message, for configuration-only run."""
 
-    msg = dedent(f"""
+    msg = dedent(
+        f"""
         --- Your project is now configured for deployment on Cloud Run ---
 
         To deploy your project, you will need to:
@@ -168,12 +165,15 @@ def success_msg(log_output=''):
             - Make local changes
             - Commit your local changes
             - Run `gcloud builds submit`
-    """)
+    """
+    )
 
     if log_output:
-        msg += dedent(f"""
+        msg += dedent(
+            f"""
         - You can find a full record of this configuration in the simple_deploy_logs directory.
-        """)
+        """
+        )
 
     return msg
 
@@ -181,7 +181,8 @@ def success_msg(log_output=''):
 def success_msg_automate_all(deployed_url):
     """Success message, when using --automate-all."""
 
-    msg = dedent(f"""
+    msg = dedent(
+        f"""
 
         --- Your project should now be deployed on Cloud Run ---
 
@@ -190,9 +191,35 @@ def success_msg_automate_all(deployed_url):
 
         If you make further changes and want to push them to Cloud Run,
         commit your changes and then run `fly deploy`.
-    """)
+    """
+    )
     return msg
 
 
 def confirm_service_name(project_name, service_name):
-    pass
+    msg = dedent(
+        f"""
+
+        Your Django project is called {project_name}, but this name
+        is too complex for Cloud Run to process. 
+
+        We want to call your Cloud Run service "{service_name}", instead.
+
+        Please confirm this is okay. 
+    """
+    )
+    return msg
+
+
+def no_database_password(database_user, database_instance):
+    msg = dedent(
+        f"""
+        A database user exists, but there's no secret storing it's password. 
+        Based on this, we can't continue the process.
+
+        You can resolve this by deleting the database user, and having simple_deploy re-create it: 
+
+        $ gcloud sql users delete {database_user} --instance {database_instance}
+    """
+    )
+    return msg
