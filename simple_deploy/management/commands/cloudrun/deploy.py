@@ -36,7 +36,7 @@ class PlatformDeployer:
     def log(self, msg): 
         self.sd.write_output(msg)
     
-    def run(self, cmd, stream=False):
+    def run(self, cmd, stream=False, fail=False):
         print("🪵", re.sub(' +', ' ',cmd))
         if stream:
             self.sd.execute_command(cmd)
@@ -44,10 +44,16 @@ class PlatformDeployer:
             output_obj = self.sd.execute_subp_run(cmd)
             return_code = output_obj.returncode
             return_str = output_obj.stdout.decode().strip()
+            error_str = output_obj.stderr.decode().strip()
             if return_code == 0: 
-                print("✅", return_code, " ➡️ ", return_str)
+                print("✅", return_code)
+                print("🟢", return_str)
             else:
-                print("❓", return_code, " ➡️ ", return_str)
+                print("❓", return_code)
+                print("🔴", return_str)
+                print("🟥", error_str)
+                if fail:
+                    sys.exit(1)
             return return_code, return_str
 
         
@@ -99,15 +105,15 @@ class PlatformDeployer:
 
         self.log("Configuring IAM...")
 
-        cloudrun_sa = f"{self.project_num}-compute@developer.gserviceaccount.com"
-        cloudbuild_sa = f"{self.project_num}@cloudbuild.gserviceaccount.com"
+        self.cloudrun_sa = f"{self.project_num}-compute@developer.gserviceaccount.com"
+        self.cloudbuild_sa = f"{self.project_num}@cloudbuild.gserviceaccount.com"
 
-        self.run(f"""gcloud iam service-accounts add-iam-policy-binding {cloudrun_sa} \
-                --member "serviceAccount:{cloudbuild_sa}" \
+        self.run(f"""gcloud iam service-accounts add-iam-policy-binding {self.cloudrun_sa} \
+                --member "serviceAccount:{self.cloudbuild_sa}" \
                 --role "roles/iam.serviceAccountUser"  """)
 
         self.run(f"""gcloud projects add-iam-policy-binding {self.project_id} \
-                --member "serviceAccount:{cloudbuild_sa}" \
+                --member "serviceAccount:{self.cloudbuild_sa}" \
                 --role "roles/run.developer"  """)
 
         self.log("  Updated IAM.")
@@ -185,7 +191,7 @@ class PlatformDeployer:
         self.log("Setting ON_CLOUDRUN envvar...")
 
         # First check if envvar has already been set.
-        _, return_str = self.run(f"""gcloud run services describe {self.service_name} \
+        _, return_str = self.run(f"""gcloud run services describe {self.service_name} --region {self.region} \
                     --format \"value(spec.template.spec.containers[0].env)\"""")
 
         if 'ON_CLOUDRUN' in return_str:
@@ -223,12 +229,19 @@ class PlatformDeployer:
 
     def _create_migrate_job(self): 
         self.log("Creating migration job definition...")
+        self.migrate_job_name = "migrate"
+
+        _, return_str = self.run(f"gcloud beta run jobs describe {self.migrate_job_name} --region {self.region}")
+        if self.migrate_job_name in return_str:
+            self.log(f"Cloud Run job {self.migrate_job_name} already exists.")
+            return
+
         self.run(f"""gcloud beta run jobs create migrate \
             --image {self.image_name} \
             --region {self.region} \
             --set-secrets DATABASE_URL={self.database_secret}:latest \
             --set-cloudsql-instances {self.instance_fqn} \
-            --command "migrate" """)
+            --command "migrate" """, fail=True)
 
     def _generate_procfile(self):
         """Create Procfile, if none present."""
@@ -315,7 +328,8 @@ class PlatformDeployer:
             context = {
                 'service': self.service_name, 
                 'region': self.region,
-                'image_name': self.image_name
+                'image_name': self.image_name,
+                'job_name': self.migrate_job_name,
                 }
             path = self.sd.project_root / 'cloudbuild.yaml'
             write_file_from_template(path, 'cloudbuild.yaml', context)
@@ -566,6 +580,13 @@ class PlatformDeployer:
                 fp.seek(0)
                 self.run(f"gcloud secrets create {self.database_secret} --data-file {fp.name}")
             self.log("  Created secret")
+
+            self.log("  Update permissions for secret")
+            self.run(f"""gcloud secrets add-iam-policy-binding {self.database_secret} \
+                            --member serviceAccount:{self.cloudrun_sa} \
+                            --role roles/secretmanager.secretAccessor""")
+            self.log("  Permissions updated.")
+
 
             self.log("  Assigning secret to service")
             self.run(f"gcloud run services update {self.service_name} --region {self.region} --update-env-vars DATABASE_URL={self.database_secret}:latest")
