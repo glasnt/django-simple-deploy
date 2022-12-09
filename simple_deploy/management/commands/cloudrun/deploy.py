@@ -251,16 +251,20 @@ class PlatformDeployer:
 
         procfile_present = 'Procfile' in os.listdir(self.sd.git_path)
 
+        migrate_command = "migrate: python manage.py migrate && python manage.py collectstatic --noinput"
+
         if procfile_present:
             self.log("    Found existing Procfile.")
+            with open(f"{self.sd.git_path}/Procfile", 'w') as f:
+                f.write(migrate_command)
+                self.log("    Updated Procfile with following process:")
+                self.log(f"      {migrate_command}")
         else:
             self.log("    No Procfile found. Generating Procfile...")
             if self.sd.nested_project:
                 proc_command = f"web: gunicorn {self.sd.project_name}.{self.sd.project_name}.wsgi --log-file -"
             else:
                 proc_command = f"web: gunicorn {self.sd.project_name}.wsgi --log-file -"
-
-            migrate_command = "migrate: python manage.py migrate && python manage.py collectstatic --noinput"
 
             with open(f"{self.sd.git_path}/Procfile", 'w') as f:
                 f.write(proc_command)

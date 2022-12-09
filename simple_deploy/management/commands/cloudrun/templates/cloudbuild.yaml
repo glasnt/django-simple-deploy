@@ -29,4 +29,4 @@ options:
 substitutions:
   _REGION: {{ region }}
   _SERVICE: {{ service }}
-  _IMAGE:  {{ image_name}}
+  _IMAGE:  {{ image_name }}
