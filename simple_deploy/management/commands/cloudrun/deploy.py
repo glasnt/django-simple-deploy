@@ -255,8 +255,8 @@ class PlatformDeployer:
 
         if procfile_present:
             self.log("    Found existing Procfile.")
-            with open(f"{self.sd.git_path}/Procfile", 'w') as f:
-                f.write(migrate_command)
+            with open(f"{self.sd.git_path}/Procfile", 'a') as f:
+                f.write("\n" + migrate_command)
                 self.log("    Updated Procfile with following process:")
                 self.log(f"      {migrate_command}")
         else:
