@@ -59,42 +59,6 @@ Then, configure your gcloud CLI for this project:
 Then run simple_deploy again.
 """
 
-# TODO(glasnt): remove.
-no_cloudrun_region = """
-A configuration for the Cloud Run region could not be found.
-
-The simple_deploy command expects that you've already configured
-the region to deploy your project to. 
-
-The list of possible regions is available at: 
-
-https://cloud.google.com/run/docs/locations
-
-Commonly, the default region used is "us-central1". 
-
-Configure the default Cloud Run region: 
-
-    $ gcloud config set run/region REGION
-
-Then run simple_deploy again.
-"""
-
-
-create_app_failed = """
-Could not create a Cloud Run service.
-
-TODO(glasnt): update text
-
-The simple_deploy command can not proceed without a Cloud Run app to deploy to.
-You may have better luck with a configuration-only run, if you can create a Cloud Run
-app on your own. You may try the following command, and see if you can use any 
-error messages to troubleshoot app creation:
-
-    $ fly apps create --generate-name
-
-If you can get this command to work, you can run simple_deploy again and the 
-rest of the process may work.
-"""
 
 cancel_no_instance = """
 A database instance is required for deployment. You may be able to create a database instance
@@ -112,23 +76,6 @@ To correct this, run simple-deploy again, specifying your preferred service name
 # --- Dynamic strings ---
 # These need to be generated in functions, to display information that's
 #   determined as the script runs.
-
-
-def confirm_use_org_name(org_name):
-    """Confirm use of this org name to create a new project."""
-
-    msg = dedent(
-        f"""
-        --- The Platform.sh CLI requires an organization name when creating a new project. ---
-        When using --automate-all, a project will be created on your behalf. The following
-        organization name was found: {org_name}
-
-        This organization will be used to create a new project. If this is not okay,
-        enter n to cancel this operation.
-    """
-    )
-
-    return msg
 
 
 def confirm_create_instance(db_cmd):
@@ -190,7 +137,7 @@ def success_msg_automate_all(deployed_url):
         - You can also visit your project at {deployed_url}
 
         If you make further changes and want to push them to Cloud Run,
-        commit your changes and then run `fly deploy`.
+        commit your changes and then run `gcloud builds submit`.
     """
     )
     return msg
