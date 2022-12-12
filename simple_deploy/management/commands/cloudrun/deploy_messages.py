@@ -223,3 +223,22 @@ def no_database_password(database_user, database_instance):
     """
     )
     return msg
+
+
+def database_name_too_long(fqstring, psql_max_name_length):
+    msg = dedent(
+        f"""
+
+        Given your Google Cloud project name and chosen region, the resulting database name is too long for postgres. 
+
+        Database string: '{fqstring}'
+        Length: {len(fqstring)}
+        Max Length: {psql_max_name_length}
+
+        Based on this, we can't continue the process.
+
+        To resolve this error, you must use a shorter Google Cloud project ID, or a shorter Google Cloud region.
+
+    """
+    )
+    return msg
