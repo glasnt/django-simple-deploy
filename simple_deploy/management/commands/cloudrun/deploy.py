@@ -15,10 +15,10 @@ from simple_deploy.management.commands.cloudrun import deploy_messages as cloudr
 
 from simple_deploy.management.commands.utils import write_file_from_template
 
-# TODO(glasnt): use self.sd.region  
-CLOUD_RUN_REGION = "us-central1"
 ARTIFACT_REGISTRY = "containers"
 
+# https://github.com/django/django/blob/stable/4.1.x/django/db/backends/postgresql/operations.py#L248
+psql_max_name_length = 63
 
 
 class PlatformDeployer:
@@ -241,6 +241,7 @@ class PlatformDeployer:
             --region {self.region} \
             --set-secrets DATABASE_URL={self.database_secret}:latest \
             --set-cloudsql-instances {self.instance_fqn} \
+            --set-env-vars ON_CLOUDRUN=1 \
             --command "migrate" """, fail=True)
 
     def _generate_procfile(self):
@@ -513,13 +514,18 @@ class PlatformDeployer:
         the instance. This will greatly help with testing.
         """
 
-        self.instance_name = f"{self.service_name}-instance"
-        self.database_name = "django-db" #TODO(glasnt) change?
-        self.database_user = "django-user"
+        self.instance_name = "sd-inst"
+        self.database_name = "sd-db"
+        self.database_user = "django"
         self.instance_fqn = f"{self.project_id}:{self.region}:{self.instance_name}"
         self.database_pass = self._get_random_string()
         self.instance_pass = self._get_random_string()
         self.database_secret = f"{self.service_name}-database_url"
+
+        # Prevent django.core.exceptions.ImproperlyConfigured by checking the length of the database name ahead of time
+        fqstring = f"/cloudsql/{self.project_id}:{self.region}:{self.instance_name}/{self.database_name}"
+        if len(fqstring) > psql_max_name_length: 
+            raise CommandError(cloudrun_msgs.database_name_too_long(fqstring, psql_max_name_length))
 
         self.log("Looking for a Postgres instance...")
 
@@ -565,7 +571,7 @@ class PlatformDeployer:
             self.log("  Database user and secret exists. This is okay.")
         elif user_exists and not secret_exists:
             self.log("  Database user exists, but password not stored. I'm sad.")
-            raise CommandError(cloudrun_msgs.no_database_password)
+            raise CommandError(cloudrun_msgs.no_database_password(self.database_user, self.instance_name))
         elif not user_exists and not secret_exists:
             self.log("  Database user and secret don't exist. Creating.")
 
