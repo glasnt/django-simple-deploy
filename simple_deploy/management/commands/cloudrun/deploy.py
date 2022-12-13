@@ -5,6 +5,7 @@ import os
 import re
 import sys
 import tempfile
+import urllib
 from pathlib import Path
 
 from anyascii import anyascii
@@ -619,7 +620,10 @@ class PlatformDeployer:
             self.log("    Created database user.")
 
             self.log("    Creating database secret...")
-            self.database_url = f"postgres://{self.database_user}:{self.database_pass}@//cloudsql/{self.instance_fqn}/{self.database_name}"
+            # dj-database-url requires the hostname is encoded for socket style. safe="" ensures slashes are also encoded.
+            encoded_host = urllib.parse.quote(f"/cloudsql/{self.instance_fqn}", safe="")
+            self.database_url = f"postgres://{self.database_user}:{self.database_pass}@{encoded_host}/{self.database_name}"
+
             with tempfile.NamedTemporaryFile() as fp:
                 fp.write(str.encode(self.database_url))
                 fp.seek(0)
