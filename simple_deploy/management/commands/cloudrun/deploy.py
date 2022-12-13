@@ -544,7 +544,7 @@ class PlatformDeployer:
         self.instance_fqn = f"{self.project_id}:{self.region}:{self.instance_name}"
         self.database_pass = self._get_random_string()
         self.instance_pass = self._get_random_string()
-        self.database_secret = f"{self.service_name}-database_url"
+        self.database_secret = f"cloud-run-{self.service_name}-database-url"
 
         # Prevent django.core.exceptions.ImproperlyConfigured by checking the length of the database name ahead of time
         fqstring = f"/cloudsql/{self.project_id}:{self.region}:{self.instance_name}/{self.database_name}"
