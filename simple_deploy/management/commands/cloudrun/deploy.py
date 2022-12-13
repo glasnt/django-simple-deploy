@@ -642,7 +642,7 @@ class PlatformDeployer:
 
             self.log("  Assigning secret to service")
             self.run(
-                f"gcloud run services update {self.service_name} --region {self.region} --update-env-vars DATABASE_URL={self.database_secret}:latest"
+                f"gcloud run services update {self.service_name} --region {self.region} --update-secrets DATABASE_URL={self.database_secret}:latest"
             )
             self.log("    Assigned secret.")
 
