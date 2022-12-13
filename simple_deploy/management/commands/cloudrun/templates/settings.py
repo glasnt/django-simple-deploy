@@ -30,8 +30,10 @@ if os.environ.get("ON_CLOUDRUN"):
     import dj_database_url
 
     db_url = os.environ.get("DATABASE_URL")
-    DATABASES["default"] = dj_database_url.parse(db_url)
+    DATABASES = { 'default': dj_database_url.parse(db_url) }
 
     # TODO(glasnt): Remove when jazzband/dj-database-url#181 included in release (1.1.0+)
     import urllib
     DATABASES["default"]["HOST"] = urllib.parse.unquote(DATABASES["default"]["HOST"])
+
+    SECRET_KEY = os.environ.get("SECRET_KEY")

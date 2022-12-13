@@ -73,7 +73,8 @@ class PlatformDeployer:
         self._get_cloudrun_service_url()
         self._set_on_cloudrun()
         self._create_registry()
-        self._create_db()  # TODO(glasnt) move?
+        self._configure_secret_key()
+        self._create_db()
 
         # Configuration
         self._generate_procfile()
@@ -81,7 +82,6 @@ class PlatformDeployer:
         self._add_cloudbuild_yaml()
         self._modify_settings()
         self._add_python_packages()
-        #_configure_secret_key TODO(glasnt)
 
         self._conclude_automate_all()
         self._show_success_message()
@@ -267,6 +267,7 @@ class PlatformDeployer:
             --image {self.image_name} \
             --region {self.region} \
             --set-secrets DATABASE_URL={self.database_secret}:latest \
+            --set-secrets SECRET_KEY={self.secret_key_name}:latest \
             --set-cloudsql-instances {self.instance_fqn} \
             --set-env-vars ON_CLOUDRUN=1 \
             --command "migrate" """,
@@ -407,6 +408,16 @@ class PlatformDeployer:
             elif self.sd.using_pipenv:
                 self.sd.add_pipenv_pkg(name)
         self.log(f"  Added {len(packages)} dependencies.")
+
+
+    def _configure_secret_key(self): 
+        self.secret_key_name = f"cloud-run-{self.service_name}-secret-key"
+        secret_key_value = self._get_random_string(length=50)
+
+        if not self.sd.unit_testing:
+            self.log("Generating a new secret key")
+            self._create_and_assign_secret(secret_name=self.secret_key_name, secret_value=secret_key_value, secret_envvar="SECRET_KEY")
+
 
     def _conclude_automate_all(self):
         """Finish automating.
@@ -562,7 +573,7 @@ class PlatformDeployer:
         else:
             self.log(f"    Create a new Postgres database (this may take a while)...")
 
-            # TODO(glasnt) instance size?
+            # TODO(glasnt) db-f1-micro take a while to boot. Temp use a bigger instance. 
             cmd = f"""gcloud sql instances create {self.instance_name} \
                         --database-version POSTGRES_14 --cpu 2 --memory 4GB  \
                         --region {self.region} \
@@ -624,30 +635,35 @@ class PlatformDeployer:
             encoded_host = urllib.parse.quote(f"/cloudsql/{self.instance_fqn}", safe="")
             self.database_url = f"postgres://{self.database_user}:{self.database_pass}@{encoded_host}/{self.database_name}"
 
-            with tempfile.NamedTemporaryFile() as fp:
-                fp.write(str.encode(self.database_url))
-                fp.seek(0)
-                self.run(
-                    f"gcloud secrets create {self.database_secret} --data-file {fp.name}"
-                )
-            self.log("    Created secret")
-
-            self.log("  Update permissions for secret")
-            self.run(
-                f"""gcloud secrets add-iam-policy-binding {self.database_secret} \
-                            --member serviceAccount:{self.cloudrun_sa} \
-                            --role roles/secretmanager.secretAccessor"""
-            )
-            self.log("    Permissions updated.")
-
-            self.log("  Assigning secret to service")
-            self.run(
-                f"gcloud run services update {self.service_name} --region {self.region} --update-secrets DATABASE_URL={self.database_secret}:latest"
-            )
-            self.log("    Assigned secret.")
-
+            self._create_and_assign_secret(secret_name=self.database_secret, secret_value=self.database_url, secret_envvar="DATABASE_URL")
+            
         self._create_container()
         self._create_migrate_job()
+
+    def _create_and_assign_secret(self, secret_name, secret_value, secret_envvar): 
+        """Create a secret in Secret Manager, update access, assign to Cloud Run"""
+        self.log(f"Creating secret {secret_name} as {secret_envvar}...")
+
+        #TODO(glasnt): check secret exists before trying to create. 
+        with tempfile.NamedTemporaryFile() as fp:
+            fp.write(str.encode(secret_name))
+            fp.seek(0)
+            self.run( f"gcloud secrets create {secret_name} --data-file {fp.name}")
+            self.log(" Created secret")
+
+        self.log(f"Update permissions for secret {secret_name}")
+        self.run(
+            f"""gcloud secrets add-iam-policy-binding {secret_name} \
+                        --member serviceAccount:{self.cloudrun_sa} \
+                        --role roles/secretmanager.secretAccessor"""
+        )
+        self.log("  Permissions updated.")
+
+        self.log(f"Assigning secret to service as {secret_envvar}")
+        self.run(
+            f"gcloud run services update {self.service_name} --region {self.region} --update-secrets {secret_envvar}={secret_name}:latest"
+        )
+        self.log("    Assigned secret.")
 
     def _check_if_dbinstance_exists(self):
         """Check if a postgres instance already exists that should be used with this app.
