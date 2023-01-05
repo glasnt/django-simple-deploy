@@ -17,8 +17,6 @@ from simple_deploy.management.commands import deploy_messages as d_msgs
 from simple_deploy.management.commands.cloudrun import deploy_messages as cloudrun_msgs
 from simple_deploy.management.commands.utils import write_file_from_template
 
-ARTIFACT_REGISTRY = "containers"
-
 # https://github.com/django/django/blob/stable/4.1.x/django/db/backends/postgresql/operations.py#L248
 psql_max_name_length = 63
 
@@ -126,6 +124,9 @@ class PlatformDeployer:
         self.log("  Updated IAM.")
 
     def _get_service_name(self):
+        """Cloud Run service names must be valid Kubernetes Object names.
+        These differ from Django project names, which are python identifiers."""
+
         # Use the provided name if --deployed-project-name specified.
         self.log("Using Django project name to determine Cloud Run service name...")
         if self.sd.deployed_project_name:
@@ -133,17 +134,18 @@ class PlatformDeployer:
         else:
             project_name = self.sd.project_name
 
+        # Otherwise, use the project name. 
         service_name = project_name
-        """Cloud Run service names must be valid Kubernetes Object names.
-        These differ from Django project names, which are python identifiers."""
 
-        # cast underscores to hyphens
+        # Validate service name
+        # First, cast underscores to hyphens
         if "_" in service_name:
             service_name = service_name.replace("_", "-")
 
-        # convert any non-ascii characters to ascii.
+        # Then, convert any non-ascii characters to ascii.
         ascii_service_name = anyascii(service_name)
 
+        # Finally, if major changes occured, confirm with user
         if ascii_service_name != service_name:
             # Service name changed dramatically. Confirm change
 
@@ -222,23 +224,26 @@ class PlatformDeployer:
         """Create an Artifact Registry for storing images"""
         self.log("Creating an Artifact Registry")
 
+        # Default name for artifact registry.
+        self.artifact_registry = "containers"
+
         _, return_str = self.run(
             f"gcloud artifacts repositories list --location {self.region}"
         )
 
-        if ARTIFACT_REGISTRY in return_str:
+        if self.artifact_registry in return_str:
             self.log("  Artifact Registry found.")
             return
 
         self.run(
-            f"gcloud artifacts repositories create {ARTIFACT_REGISTRY} --repository-format=docker --location {self.region}"
+            f"gcloud artifacts repositories create {self.artifact_registry} --repository-format=docker --location {self.region}"
         )
         self.log("  Created Artifact Registry")
 
     def _create_container(self):
         self.log("Creating container image...")
         self.registry_name = (
-            f"{self.region}-docker.pkg.dev/{self.project_id}/{ARTIFACT_REGISTRY}"
+            f"{self.region}-docker.pkg.dev/{self.project_id}/{self.artifact_registry}"
         )
         self.image_name = f"{self.registry_name}/{self.service_name}"
 
