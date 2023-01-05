@@ -609,7 +609,7 @@ class PlatformDeployer:
         self.log("  Looking for a database username and secret...")
 
         user_exists = self._check_if_dbuser_exists()
-        secret_exists = self._check_if_dbsecret_exists()
+        secret_exists = self._check_if_secret_exists(self.database_secret)
 
         if user_exists and secret_exists:
             self.log("    Database user and secret exists. This is okay.")
@@ -646,12 +646,20 @@ class PlatformDeployer:
         """Create a secret in Secret Manager, update access, assign to Cloud Run"""
         self.log(f"Creating secret {secret_name} as {secret_envvar}...")
 
-        #TODO(glasnt): check secret exists before trying to create. 
-        with tempfile.NamedTemporaryFile() as fp:
-            fp.write(str.encode(secret_name))
-            fp.seek(0)
-            self.run( f"gcloud secrets create {secret_name} --data-file {fp.name}")
-            self.log(" Created secret")
+        self.log("Check secret exists.")
+
+        secret_exists = self._check_if_secret_exists(secret_name)
+
+        if secret_exists:
+            self.log("Secret exists.")
+        else:
+            self.log("Secret doesn't exist.")
+
+            with tempfile.NamedTemporaryFile() as fp:
+                fp.write(str.encode(secret_value))
+                fp.seek(0)
+                self.run(f"gcloud secrets create {secret_name} --data-file {fp.name}")
+                self.log(f" Secret {secret_name} created.")
 
         self.log(f"Update permissions for secret {secret_name}")
         self.run(
@@ -737,14 +745,14 @@ class PlatformDeployer:
             self.log("    User not found")
             return False
 
-    def _check_if_dbsecret_exists(self):
-        """Check if a secret already exists that should be used with this app."""
+    def _check_if_secret_exists(self, secret_name):
+        """Check if a secret already exists"""
         _, return_str = self.run(
             f"gcloud secrets list"
         )  # --filter \"name:{self.database.secret}\"")
 
-        if self.database_secret in return_str:
-            self.log(f"    Secret {self.database_secret} found")
+        if secret_name in return_str:
+            self.log(f"    Secret {secret_name} found")
             return True
         else:
             self.log("    Secret not found")
