@@ -639,6 +639,12 @@ class PlatformDeployer:
 
             self._create_and_assign_secret(secret_name=self.database_secret, secret_value=self.database_url, secret_envvar="DATABASE_URL")
             
+        self.log("    Associating database to service")
+        self.run(
+            f"gcloud run services update {self.service_name} --region {self.region} --set-cloudsql-instances {self.instance_fqn}"
+        )
+        self.log("    Associated database.")
+
         self._create_container()
         self._create_migrate_job()
 
