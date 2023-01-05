@@ -577,14 +577,16 @@ class PlatformDeployer:
             cmd = f"""gcloud sql instances create {self.instance_name} \
                         --database-version POSTGRES_14 --cpu 2 --memory 4GB  \
                         --region {self.region} \
-                        --project {self.project_id} \
-                        --root-password {self.instance_pass} \
-                """
+                        --project {self.project_id} """
 
+            # As a general rule, don't share passwords to stdout. 
+            cmd_redacted = cmd + "--root-password [REDACTED]"
+            cmd = cmd + f"--root-password {self.instance_pass}"
+            
             # If not using automate_all, make sure it's okay to create a resource
             #   on user's account.
             if not self.sd.automate_all:
-                self._confirm_create_instance(db_cmd=cmd)
+                self._confirm_create_instance(db_cmd=cmd_redacted)
 
             # Create database.
             # Use execute_command(), to stream output of long-running process.
