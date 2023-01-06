@@ -412,11 +412,7 @@ class PlatformDeployer:
 
         self.log("Adding packages to project dependencies...")
         for name in packages:
-            self.log(f"  Looking for {name}...")
-            if self.sd.using_req_txt:
-                self.sd.add_req_txt_pkg(name)
-            elif self.sd.using_pipenv:
-                self.sd.add_pipenv_pkg(name)
+            self.sd.add_package(name)
         self.log(f"  Added {len(packages)} dependencies.")
 
 
