@@ -81,6 +81,10 @@ class PlatformDeployer:
         self._modify_settings()
         self._add_python_packages()
 
+        # Generation
+        self._create_container()
+        self._create_migrate_job()
+
         self._conclude_automate_all()
         self._show_success_message()
 
@@ -649,9 +653,6 @@ class PlatformDeployer:
             f"gcloud run services update {self.service_name} --region {self.region} --set-cloudsql-instances {self.instance_fqn}"
         )
         self.log("    Associated database.")
-
-        self._create_container()
-        self._create_migrate_job()
 
     def _create_and_assign_secret(self, secret_name, secret_value, secret_envvar): 
         """Create a secret in Secret Manager, update access, assign to Cloud Run"""
