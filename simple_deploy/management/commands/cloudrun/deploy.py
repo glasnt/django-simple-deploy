@@ -17,6 +17,11 @@ from simple_deploy.management.commands import deploy_messages as d_msgs
 from simple_deploy.management.commands.cloudrun import deploy_messages as cloudrun_msgs
 from simple_deploy.management.commands.utils import write_file_from_template
 
+<<<<<<< HEAD
+=======
+ARTIFACT_REGISTRY = "containers"
+
+>>>>>>> 177b7ae445cb5b00dd543d4f856a46c732dd18c5
 # https://github.com/django/django/blob/stable/4.1.x/django/db/backends/postgresql/operations.py#L248
 psql_max_name_length = 63
 
