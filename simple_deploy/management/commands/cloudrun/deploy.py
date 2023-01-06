@@ -262,7 +262,6 @@ class PlatformDeployer:
 
     def _create_migrate_job(self):
         self.log("Creating migration job definition...")
-        self.migrate_job_name = "migrate"
 
         _, return_str = self.run(
             f"gcloud beta run jobs describe {self.migrate_job_name} --region {self.region}"
@@ -363,6 +362,8 @@ class PlatformDeployer:
         """Add a cloudbuild.yaml file."""
         # File should be in project root, if present.
         self.log(f"Looking in {self.sd.git_path} for cloudbuild.yaml file...")
+
+        self.migrate_job_name = "migrate"
         cloudbuildyaml_present = "cloudbuild.yaml" in os.listdir(self.sd.git_path)
 
         if cloudbuildyaml_present:
