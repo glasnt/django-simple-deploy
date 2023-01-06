@@ -230,6 +230,10 @@ class PlatformDeployer:
 
         # Default name for artifact registry.
         self.artifact_registry = "containers"
+        self.registry_name = (
+            f"{self.region}-docker.pkg.dev/{self.project_id}/{self.artifact_registry}"
+        )
+        self.image_name = f"{self.registry_name}/{self.service_name}"
 
         _, return_str = self.run(
             f"gcloud artifacts repositories list --location {self.region}"
@@ -246,10 +250,6 @@ class PlatformDeployer:
 
     def _create_container(self):
         self.log("Creating container image...")
-        self.registry_name = (
-            f"{self.region}-docker.pkg.dev/{self.project_id}/{self.artifact_registry}"
-        )
-        self.image_name = f"{self.registry_name}/{self.service_name}"
 
         _, return_str = self.run(
             f"gcloud artifacts docker images list {self.registry_name}"
