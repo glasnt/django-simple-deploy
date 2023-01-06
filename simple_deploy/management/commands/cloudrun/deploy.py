@@ -128,8 +128,8 @@ class PlatformDeployer:
         self.log("  Updated IAM.")
 
     def _get_service_name(self):
-        """Cloud Run service names must be valid Kubernetes Object names.
-        These differ from Django project names, which are python identifiers."""
+        """Cloud Run service names must be valid Kubernetes Object names (has hyphens)
+        These differ from Django project names, which are python identifiers (has underscores)."""
 
         # Use the provided name if --deployed-project-name specified.
         self.log("Using Django project name to determine Cloud Run service name...")
@@ -296,6 +296,7 @@ class PlatformDeployer:
 
         if procfile_present:
             self.log("  Found existing Procfile.")
+            #TODO(glasnt): Check if migrate process already declared. Skip if it is. 
             with open(f"{self.sd.git_path}/Procfile", "a") as f:
                 f.write("\n" + migrate_command)
                 self.log("  Updated Procfile with following process:")
