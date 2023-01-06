@@ -309,7 +309,7 @@ class PlatformDeployer:
 
             with open(f"{self.sd.git_path}/Procfile", "w") as f:
                 f.write(proc_command)
-                f.write(migrate_command)
+                f.write("\n" + migrate_command)
 
             self.log("  Generated Procfile with following process:")
             self.log(f"    {proc_command}")
